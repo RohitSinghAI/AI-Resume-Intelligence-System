@@ -1,4 +1,4 @@
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 
 import {
   LayoutDashboard,
@@ -50,7 +50,44 @@ const menuItems = [
   },
 ];
 
+function isMenuActive(pathname, itemPath) {
+  // Exact match
+  if (pathname === itemPath) {
+    return true;
+  }
+
+  // Upload Resume should not also activate Resumes
+  if (itemPath === "/resumes") {
+    return (
+      pathname.startsWith("/resumes/") &&
+      pathname !== "/resumes/upload"
+    );
+  }
+
+  // Match History should not also activate Matching
+  if (itemPath === "/matching") {
+    return false;
+  }
+
+  // Jobs nested pages
+  if (itemPath === "/jobs") {
+    return (
+      pathname.startsWith("/jobs/") &&
+      pathname !== "/jobs/create"
+    );
+  }
+
+  // Candidates nested pages
+  if (itemPath === "/candidates") {
+    return pathname.startsWith("/candidates/");
+  }
+
+  return pathname.startsWith(`${itemPath}/`);
+}
+
 function Sidebar() {
+  const location = useLocation();
+
   return (
     <aside className="fixed left-0 top-0 z-40 flex h-screen w-64 flex-col border-r border-slate-200 bg-white">
       {/* Logo */}
@@ -80,44 +117,42 @@ function Sidebar() {
           {menuItems.map((item) => {
             const Icon = item.icon;
 
+            const active = isMenuActive(
+              location.pathname,
+              item.path
+            );
+
             return (
               <NavLink
                 key={item.path}
                 to={item.path}
-                end={item.path === "/"}
-                className={({ isActive }) =>
-                  `group flex items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-medium transition-all ${
-                    isActive
-                      ? "bg-indigo-50 text-indigo-600 shadow-sm ring-1 ring-indigo-100"
-                      : "text-slate-600 hover:bg-slate-50 hover:text-indigo-600"
-                  }`
-                }
+                className={`group flex items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-medium transition-all ${
+                  active
+                    ? "bg-indigo-50 text-indigo-600 shadow-sm ring-1 ring-indigo-100"
+                    : "text-slate-600 hover:bg-slate-50 hover:text-indigo-600"
+                }`}
               >
-                {({ isActive }) => (
-                  <>
-                    <span
-                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition ${
-                        isActive
-                          ? "bg-white text-indigo-600 shadow-sm"
-                          : "bg-transparent text-slate-400 group-hover:text-indigo-600"
-                      }`}
-                    >
-                      <Icon size={18} strokeWidth={2} />
-                    </span>
+                <span
+                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition ${
+                    active
+                      ? "bg-white text-indigo-600 shadow-sm"
+                      : "bg-transparent text-slate-400 group-hover:text-indigo-600"
+                  }`}
+                >
+                  <Icon size={18} strokeWidth={2} />
+                </span>
 
-                    <span className="truncate">{item.name}</span>
+                <span className="truncate">{item.name}</span>
 
-                    {isActive && (
-                      <span className="ml-auto h-2 w-2 rounded-full bg-indigo-600" />
-                    )}
-                  </>
+                {active && (
+                  <span className="ml-auto h-2 w-2 rounded-full bg-indigo-600" />
                 )}
               </NavLink>
             );
           })}
         </div>
 
-        {/* Workspace status */}
+        {/* Workspace Status */}
         <div className="mt-6 rounded-2xl border border-indigo-100 bg-indigo-50/70 p-4">
           <div className="flex items-start gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-indigo-600 shadow-sm">
@@ -137,7 +172,7 @@ function Sidebar() {
         </div>
       </nav>
 
-      {/* Bottom */}
+      {/* Settings */}
       <div className="shrink-0 border-t border-slate-200 p-3">
         <NavLink
           to="/settings"
