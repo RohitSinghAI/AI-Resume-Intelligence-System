@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 import {
   Mail,
@@ -90,7 +90,7 @@ function Login() {
       // REDIRECT TO DASHBOARD
       // ======================================
 
-      navigate("/", {
+      navigate("/dashboard", {
         replace: true,
       });
 
@@ -413,9 +413,23 @@ function Login() {
 
             </form>
 
+            {/* Register Link */}
+
+            <div className="mt-6 text-center">
+              <p className="text-sm text-slate-500">
+                Don't have an account?{" "}
+                <Link
+                  to="/register"
+                  className="font-semibold text-indigo-600 transition hover:text-indigo-700"
+                >
+                  Create an account
+                </Link>
+              </p>
+            </div>
+
             {/* Footer */}
 
-            <div className="mt-8 border-t border-slate-100 pt-6 text-center">
+            <div className="mt-6 border-t border-slate-100 pt-6 text-center">
 
               <p className="text-xs leading-5 text-slate-400">
 

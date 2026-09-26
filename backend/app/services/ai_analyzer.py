@@ -1,5 +1,6 @@
 import os
 import json
+import re
 from typing import Any
 
 from dotenv import load_dotenv
@@ -347,121 +348,214 @@ Resume:
 
 
 # =========================================================
+# DETERMINISTIC RESUME SCORE
+# =========================================================
+
+def _safe_list(value):
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    if value in (None, "", {}):
+        return []
+    return [value]
+
+
+def _count_nonempty(values):
+    count = 0
+    for item in _safe_list(values):
+        if isinstance(item, dict):
+            if any(v not in (None, "", [], {}) for v in item.values()):
+                count += 1
+        elif str(item).strip():
+            count += 1
+    return count
+
+
+def _safe_list(value):
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    if value in (None, "", {}):
+        return []
+    return [value]
+
+
+def _call_resume_quality_score(
+    resume_text: str,
+    parsed_resume: dict[str, Any],
+) -> dict[str, Any]:
+    """Ask the LLM for evidence-based component scores.
+
+    The application computes the final resume score from these components,
+    so the model never controls the final 0-100 number directly.
+    """
+
+    system_prompt = """
+You are an expert ATS resume evaluator.
+
+Score the resume using evidence that actually appears in the resume.
+Do not invent skills, experience, achievements, certifications, or education.
+Do not use a single overall score. Score each component separately.
+
+Important calibration rules:
+- Use the full scoring ranges; do not default every resume to common scores such as 60, 68, 70, or 80.
+- Different resumes should receive different component scores when their evidence differs.
+- A fresher should NOT be treated as a bad candidate simply because they lack full-time employment.
+  Relevant internships, substantial projects, practical training, and demonstrated work can earn credit.
+- Reward concrete technical depth, relevant project detail, measurable outcomes, and clear evidence.
+- Do not reward repeated keywords by themselves.
+- Only give high scores when the resume contains strong evidence for that component.
+
+Return only JSON matching the schema.
+"""
+
+    user_prompt = f"""
+Evaluate this resume.
+
+SCORING RUBRIC
+
+1. profile_completeness: 0-10
+- name, professional email, phone/contact details.
+- full points only when the basic profile is complete.
+
+2. skills: 0-20
+- number of relevant skills, specificity, technical depth, and evidence of practical use.
+- do not give high points just because many keywords are listed.
+
+3. experience: 0-20
+- quality and relevance of jobs, internships, freelance work, training, responsibilities, and duration.
+- freshers can earn meaningful points from internships and strong practical work.
+
+4. projects: 0-20
+- quality, relevance, technologies used, description, complexity, ownership, and outcomes.
+- project count alone is not enough.
+
+5. education: 0-10
+- degree, field, institution, and year/details.
+- strong relevant education should score higher than incomplete or unclear education.
+
+6. certifications: 0-5
+- meaningful certifications relevant to the candidate profile.
+
+7. achievements_impact: 0-5
+- quantified outcomes, achievements, awards, competition results, publications, or measurable business/technical impact.
+
+8. ats_readability: 0-10
+- presence of standard sections, clear structure, consistent information, readable content, and useful section organization.
+- score from extracted text and structured data; do not invent visual formatting that cannot be verified.
+
+PARSED RESUME DATA:
+{json.dumps(parsed_resume, ensure_ascii=False, indent=2)}
+
+RESUME TEXT:
+{resume_text}
+"""
+
+    schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "profile_completeness": {"type": "integer", "minimum": 0, "maximum": 10},
+            "skills": {"type": "integer", "minimum": 0, "maximum": 20},
+            "experience": {"type": "integer", "minimum": 0, "maximum": 20},
+            "projects": {"type": "integer", "minimum": 0, "maximum": 20},
+            "education": {"type": "integer", "minimum": 0, "maximum": 10},
+            "certifications": {"type": "integer", "minimum": 0, "maximum": 5},
+            "achievements_impact": {"type": "integer", "minimum": 0, "maximum": 5},
+            "ats_readability": {"type": "integer", "minimum": 0, "maximum": 10},
+        },
+        "required": [
+            "profile_completeness",
+            "skills",
+            "experience",
+            "projects",
+            "education",
+            "certifications",
+            "achievements_impact",
+            "ats_readability",
+        ],
+    }
+
+    return _call_groq(system_prompt, user_prompt, schema)
+
+
+def calculate_resume_score(
+    parsed_resume: dict[str, Any],
+    resume_text: str,
+) -> tuple[int, dict[str, int]]:
+    """Calculate a final ATS-style score from component scores."""
+
+    breakdown = _call_resume_quality_score(
+        resume_text=resume_text,
+        parsed_resume=parsed_resume or {},
+    )
+
+    clean = {
+        key: max(0, int(value or 0))
+        for key, value in breakdown.items()
+    }
+
+    total = sum(clean.values())
+    total = max(0, min(100, total))
+
+    return total, clean
+
+
+# =========================================================
 # RESUME INTELLIGENCE ANALYSIS
 # =========================================================
 
 def analyze_resume_intelligence(
-    resume_text: str
+    resume_text: str,
+    parsed_resume: dict[str, Any] | None = None,
 ):
+    """Generate qualitative AI insights plus a calibrated ATS-style score."""
+
+    # Backward compatible: if the router does not pass parsed data yet,
+    # generate it here once so scoring still uses structured resume content.
+    if not parsed_resume:
+        parsed_resume = analyze_resume_with_ai(resume_text)
 
     system_prompt = """
 You are an expert AI Resume Analyzer.
 
-Analyze the resume objectively.
+Analyze the resume objectively using only evidence present in the resume.
+Do not invent experience, skills, qualifications, achievements, or certifications.
+Do not calculate or return a numeric resume score; the application calculates it separately.
 
-Evaluate:
-
-1. Overall resume quality
-2. Technical skills
-3. Experience
-4. Projects
-5. Education
-6. Resume structure
-7. Job readiness
-
-Important rules:
-
-1. Return ONLY valid JSON.
-2. Do not use Markdown.
-3. Do not invent experience.
-4. Do not invent skills.
-5. Resume score must be between 0 and 100.
-6. Strengths must be based on the actual resume.
-7. Weaknesses must be realistic and evidence-based.
-8. Missing skills should be useful skills that appear relevant
-   based on the candidate's existing profile.
-9. Suggestions must be practical.
-10. Keep the analysis concise.
+Return concise, practical qualitative insights only.
 """
 
     user_prompt = f"""
 Analyze the following resume.
 
-Return:
+PARSED RESUME DATA:
+{json.dumps(parsed_resume or {}, ensure_ascii=False, indent=2)}
 
-- resume_score
+RESUME TEXT:
+{resume_text}
+
+Return:
 - summary
 - strengths
 - weaknesses
 - missing_skills
 - suggestions
-
-Resume:
-
-{resume_text}
 """
 
     schema = {
-
         "type": "object",
-
         "additionalProperties": False,
-
         "properties": {
-
-            "resume_score": {
-
-                "type": "integer",
-
-                "minimum": 0,
-
-                "maximum": 100,
-            },
-
-            "summary": {
-
-                "type": "string"
-            },
-
-            "strengths": {
-
-                "type": "array",
-
-                "items": {
-                    "type": "string"
-                },
-            },
-
-            "weaknesses": {
-
-                "type": "array",
-
-                "items": {
-                    "type": "string"
-                },
-            },
-
-            "missing_skills": {
-
-                "type": "array",
-
-                "items": {
-                    "type": "string"
-                },
-            },
-
-            "suggestions": {
-
-                "type": "array",
-
-                "items": {
-                    "type": "string"
-                },
-            },
+            "summary": {"type": "string"},
+            "strengths": {"type": "array", "items": {"type": "string"}},
+            "weaknesses": {"type": "array", "items": {"type": "string"}},
+            "missing_skills": {"type": "array", "items": {"type": "string"}},
+            "suggestions": {"type": "array", "items": {"type": "string"}},
         },
-
         "required": [
-            "resume_score",
             "summary",
             "strengths",
             "weaknesses",
@@ -470,11 +564,26 @@ Resume:
         ],
     }
 
-    return _call_groq(
+    ai_analysis = _call_groq(
         system_prompt,
         user_prompt,
         schema,
     )
+
+    score, breakdown = calculate_resume_score(
+        parsed_resume=parsed_resume or {},
+        resume_text=resume_text,
+    )
+
+    return {
+        "resume_score": score,
+        "summary": ai_analysis.get("summary", ""),
+        "strengths": ai_analysis.get("strengths", []),
+        "weaknesses": ai_analysis.get("weaknesses", []),
+        "missing_skills": ai_analysis.get("missing_skills", []),
+        "suggestions": ai_analysis.get("suggestions", []),
+        "score_breakdown": breakdown,
+    }
 
 
 # =========================================================

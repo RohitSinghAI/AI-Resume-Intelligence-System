@@ -3,7 +3,9 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Layout from "./components/layout/Layout";
 import ProtectedRoute from "./components/auth/ProtectedRoute";
 
+import Home from "./pages/Home";
 import Login from "./pages/auth/Login";
+import Register from "./pages/auth/Register";
 
 import Dashboard from "./pages/Dashboard";
 
@@ -33,151 +35,98 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
-
         {/* =========================
-            PUBLIC ROUTE
+            PUBLIC ROUTES
         ========================= */}
 
-        <Route
-          path="/login"
-          element={<Login />}
-        />
+        <Route path="/" element={<Home />} />
+
+        <Route path="/login" element={<Login />} />
+
+        <Route path="/register" element={<Register />} />
 
         {/* =========================
-            PROTECTED ROUTES
+            PROTECTED APPLICATION
         ========================= */}
 
         <Route element={<ProtectedRoute />}>
+          <Route element={<Layout />}>
+            {/* Dashboard */}
+            <Route path="/dashboard" element={<Dashboard />} />
 
-          {/* =========================
-              MAIN APPLICATION LAYOUT
-          ========================= */}
-
-          <Route path="/" element={<Layout />}>
-
-            {/* =========================
-                DASHBOARD
-            ========================= */}
-
+            {/* Resumes */}
+            <Route path="/resumes" element={<Resumes />} />
             <Route
-              index
-              element={<Dashboard />}
-            />
-
-            {/* =========================
-                RESUMES
-            ========================= */}
-
-            <Route
-              path="resumes"
-              element={<Resumes />}
-            />
-
-            <Route
-              path="resumes/upload"
+              path="/resumes/upload"
               element={<UploadResume />}
             />
-
             <Route
-              path="resumes/:id"
+              path="/resumes/:id"
               element={<ResumeDetails />}
             />
-
             <Route
-              path="resumes/:id/analysis"
+              path="/resumes/:id/analysis"
               element={<ResumeAnalysis />}
             />
 
-            {/* =========================
-                JOBS
-            ========================= */}
-
+            {/* Jobs */}
+            <Route path="/jobs" element={<Jobs />} />
             <Route
-              path="jobs"
-              element={<Jobs />}
-            />
-
-            <Route
-              path="jobs/create"
+              path="/jobs/create"
               element={<CreateJob />}
             />
-
-            {/* Edit Job */}
             <Route
-              path="jobs/:id/edit"
+              path="/jobs/:id/edit"
               element={<EditJob />}
             />
-
-            {/* Job Details */}
             <Route
-              path="jobs/:id"
+              path="/jobs/:id"
               element={<JobDetails />}
             />
 
-            {/* =========================
-                CANDIDATES
-            ========================= */}
-
+            {/* Candidates */}
             <Route
-              path="candidates"
+              path="/candidates"
               element={<Candidates />}
             />
-
             <Route
-              path="candidates/:id"
+              path="/candidates/:id"
               element={<CandidateDetails />}
             />
 
-            {/* =========================
-                MATCHING
-            ========================= */}
-
+            {/* Matching */}
             <Route
-              path="matching"
+              path="/matching"
               element={<MatchResults />}
             />
-
             <Route
-              path="matching/:jobId/:resumeId"
+              path="/matching/:jobId/:resumeId"
               element={<MatchDetails />}
             />
-
             <Route
-              path="matching/history"
+              path="/matching/history"
               element={<MatchHistory />}
             />
 
-            {/* =========================
-                SETTINGS
-            ========================= */}
-
+            {/* Settings */}
             <Route
-              path="settings"
+              path="/settings"
               element={<Settings />}
             />
 
-            {/* =========================
-                NOT FOUND
-            ========================= */}
-
-            <Route
-              path="*"
-              element={<NotFound />}
-            />
-
+            {/* Protected fallback */}
+            <Route path="*" element={<NotFound />} />
           </Route>
 
-          {/* =========================
-              AI RESUME CHAT
-          ========================= */}
-
+          {/* AI Resume Chat */}
           <Route
             path="/resume-chat/:resumeId"
             element={<ResumeChat />}
           />
-
         </Route>
 
+        {/* Public fallback */}
+        <Route path="*" element={<NotFound />} />
       </Routes>
     </BrowserRouter>
   );

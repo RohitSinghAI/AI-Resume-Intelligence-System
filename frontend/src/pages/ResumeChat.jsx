@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Link, useParams } from "react-router-dom";
 
 import {
   Send,
@@ -11,11 +11,16 @@ import {
   History,
   Menu,
   X,
+  ArrowLeft,
 } from "lucide-react";
 
 import ReactMarkdown from "react-markdown";
 
-import API from "../services/api";
+import {
+  askResumeQuestion,
+  getChatHistory,
+  getChatById,
+} from "../services/chatApi";
 
 
 const ResumeChat = () => {
@@ -32,12 +37,23 @@ const ResumeChat = () => {
   const [loading, setLoading] = useState(false);
   const [chatLoading, setChatLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [chatError, setChatError] = useState("");
 
   // AI typing effect
   const [typingMessage, setTypingMessage] = useState("");
 
   // Auto-scroll reference
   const chatEndRef = useRef(null);
+  const typingIntervalRef = useRef(null);
+
+  // Cleanup typing timer on unmount
+  useEffect(() => {
+    return () => {
+      if (typingIntervalRef.current) {
+        clearInterval(typingIntervalRef.current);
+      }
+    };
+  }, []);
 
   // Suggested questions
   const suggestedQuestions = [
@@ -65,19 +81,25 @@ const ResumeChat = () => {
   // GET ALL CHATS
   // ============================================================
 
-  const fetchChats = async () => {
+  const fetchChats = useCallback(async () => {
     try {
-      const response = await API.get("/chat/chats");
+      const data = await getChatHistory();
 
-      setChats(response.data);
+      const chatList = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.chats)
+          ? data.chats
+          : [];
 
-    } catch (error) {
-      console.error(
-        "Failed to load chats:",
-        error
+      const currentResumeChats = chatList.filter(
+        (chat) => String(chat.resume_id) === String(resumeId)
       );
+
+      setChats(currentResumeChats);
+    } catch (error) {
+      console.error("Failed to load chats:", error);
     }
-  };
+  }, [resumeId]);
 
 
   // ============================================================
@@ -86,7 +108,7 @@ const ResumeChat = () => {
 
   useEffect(() => {
     fetchChats();
-  }, []);
+  }, [fetchChats]);
 
 
   // ============================================================
@@ -97,15 +119,12 @@ const ResumeChat = () => {
     setChatLoading(true);
 
     try {
-      const response = await API.get(
-        `/chat/chats/${selectedChatId}`
-      );
+      const data = await getChatById(selectedChatId);
 
-      setChatId(response.data.chat_id);
+      setChatId(data.chat_id);
 
-      setMessages(
-        response.data.messages || []
-      );
+      setMessages(data.messages || []);
+      setChatError("");
 
       setSidebarOpen(false);
 
@@ -114,6 +133,12 @@ const ResumeChat = () => {
       console.error(
         "Failed to load chat:",
         error
+      );
+
+      setChatError(
+        error.response?.data?.detail ||
+          error.message ||
+          "Failed to load this conversation."
       );
 
     } finally {
@@ -129,13 +154,11 @@ const ResumeChat = () => {
   // ============================================================
 
   const createNewChat = () => {
-
     setChatId(null);
-
     setMessages([]);
-
     setQuestion("");
-
+    setTypingMessage("");
+    setChatError("");
     setSidebarOpen(false);
   };
 
@@ -158,9 +181,13 @@ const ResumeChat = () => {
     return new Promise((resolve) => {
       let index = 0;
 
+      if (typingIntervalRef.current) {
+        clearInterval(typingIntervalRef.current);
+      }
+
       setTypingMessage("");
 
-      const interval = setInterval(() => {
+      typingIntervalRef.current = setInterval(() => {
         index += 2;
 
         const currentText = fullResponse.slice(0, index);
@@ -168,7 +195,8 @@ const ResumeChat = () => {
         setTypingMessage(currentText);
 
         if (index >= fullResponse.length) {
-          clearInterval(interval);
+          clearInterval(typingIntervalRef.current);
+          typingIntervalRef.current = null;
 
           setMessages((prev) => [
             ...prev,
@@ -208,26 +236,21 @@ const ResumeChat = () => {
     ]);
 
     setQuestion("");
-
+    setChatError("");
     setLoading(true);
 
     try {
-
-      const response = await API.post(
-        `/chat/resume/${resumeId}`,
-        {
-          question: userQuestion,
-          chat_id: chatId,
-        }
+      const data = await askResumeQuestion(
+        resumeId,
+        userQuestion,
+        chatId
       );
 
       // Save chat ID
-      setChatId(
-        response.data.chat_id
-      );
+      setChatId(data.chat_id);
 
       // Type AI response like ChatGPT
-      await typeAIResponse(response.data.answer);
+      await typeAIResponse(data.answer);
 
       // Refresh sidebar
       await fetchChats();
@@ -239,13 +262,18 @@ const ResumeChat = () => {
         error
       );
 
+      const errorMessage =
+        error.response?.data?.detail ||
+        error.message ||
+        "Something went wrong. Please try again.";
+
+      setChatError(errorMessage);
+
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
-          content:
-            error.response?.data?.detail ||
-            "Something went wrong. Please try again.",
+          content: errorMessage,
         },
       ]);
 
@@ -260,6 +288,12 @@ const ResumeChat = () => {
   // ============================================================
   // ENTER KEY
   // ============================================================
+
+  useEffect(() => {
+    if (question.trim()) {
+      setChatError("");
+    }
+  }, [question]);
 
   const handleKeyDown = (e) => {
 
@@ -418,9 +452,11 @@ const ResumeChat = () => {
           </div>
 
           <button
+            type="button"
             onClick={() =>
               setSidebarOpen(false)
             }
+            aria-label="Close chat sidebar"
             className="rounded-lg p-2 hover:bg-gray-100 md:hidden"
           >
 
@@ -464,14 +500,18 @@ const ResumeChat = () => {
         </div>
 
 
-        {/* Recent Chats */}
+        {/* Resume Chats */}
 
         <div className="flex items-center gap-2 px-4 pb-2 pt-2">
 
           <History className="h-4 w-4 text-gray-500" />
 
           <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-            Recent Chats
+            Resume Chats
+          </span>
+
+          <span className="ml-auto rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+            {chats.length}
           </span>
 
         </div>
@@ -501,6 +541,7 @@ const ResumeChat = () => {
 
                 <button
                   key={chat.id}
+                  type="button"
                   onClick={() =>
                     loadChat(chat.id)
                   }
@@ -585,9 +626,11 @@ const ResumeChat = () => {
         <header className="flex items-center gap-3 border-b bg-white px-4 py-4">
 
           <button
+            type="button"
             onClick={() =>
               setSidebarOpen(true)
             }
+            aria-label="Open chat sidebar"
             className="rounded-lg p-2 hover:bg-gray-100 md:hidden"
           >
 
@@ -605,17 +648,25 @@ const ResumeChat = () => {
           </div>
 
 
-          <div>
+          <div className="min-w-0 flex-1">
 
-            <h1 className="text-lg font-semibold text-gray-900">
+            <h1 className="truncate text-lg font-semibold text-gray-900">
               AI Resume Assistant
             </h1>
 
-            <p className="text-sm text-gray-500">
+            <p className="truncate text-sm text-gray-500">
               Ask questions about this resume
             </p>
 
           </div>
+
+          <Link
+            to={`/resumes/${resumeId}`}
+            className="hidden items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50 hover:text-indigo-600 sm:inline-flex"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to Resume
+          </Link>
 
         </header>
 
@@ -881,10 +932,19 @@ const ResumeChat = () => {
         {/* Input */}
 
         <div className="border-t bg-white p-4">
+          {chatError && (
+            <div
+              className="mx-auto mb-3 max-w-4xl rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-600"
+              role="alert"
+            >
+              {chatError}
+            </div>
+          )}
 
           <div className="mx-auto flex max-w-4xl items-end gap-3">
 
             <textarea
+              aria-label="Ask a question about the resume"
               value={question}
               onChange={(e) =>
                 setQuestion(e.target.value)
@@ -914,6 +974,7 @@ const ResumeChat = () => {
 
 
             <button
+              type="button"
               onClick={sendMessage}
               disabled={
                 !question.trim() ||

@@ -109,9 +109,7 @@ function Navbar() {
 
     logout();
 
-    navigate("/login", {
-      replace: true,
-    });
+    window.location.replace("/");
   };
 
   // ==========================================

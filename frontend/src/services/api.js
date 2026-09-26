@@ -4,7 +4,6 @@ const API = axios.create({
   baseURL: "http://127.0.0.1:8000/api",
 });
 
-
 // =========================
 // REQUEST INTERCEPTOR
 // =========================
@@ -19,33 +18,30 @@ API.interceptors.request.use(
 
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
-
 
 // =========================
 // RESPONSE INTERCEPTOR
 // =========================
 
 API.interceptors.response.use(
-  (response) => {
-    return response;
-  },
+  (response) => response,
+
   (error) => {
-
     if (error.response?.status === 401) {
-
       localStorage.removeItem("token");
       localStorage.removeItem("admin");
 
-      window.location.href = "/login";
+      const publicPaths = ["/", "/login", "/register"];
+
+      if (!publicPaths.includes(window.location.pathname)) {
+        window.location.replace("/login");
+      }
     }
 
     return Promise.reject(error);
   }
 );
-
 
 export default API;

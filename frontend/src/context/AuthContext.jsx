@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useState,
@@ -17,18 +18,28 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   // ==========================================
+  // CLEAR AUTH SESSION
+  // ==========================================
+
+  const clearAuth = useCallback(() => {
+    logoutAdmin();
+    setAdmin(null);
+  }, []);
+
+  // ==========================================
   // LOAD CURRENT ADMIN
   // ==========================================
 
-  const loadAdmin = async () => {
+  const loadAdmin = useCallback(async () => {
     const token = localStorage.getItem("token");
 
-    // No token = not authenticated
     if (!token) {
       setAdmin(null);
       setLoading(false);
       return;
     }
+
+    setLoading(true);
 
     try {
       const data = await getCurrentAdmin();
@@ -41,21 +52,15 @@ export function AuthProvider({ children }) {
           JSON.stringify(data.admin)
         );
       } else {
-        logoutAdmin();
-        setAdmin(null);
+        clearAuth();
       }
     } catch (error) {
-      console.error(
-        "Authentication check failed:",
-        error
-      );
-
-      logoutAdmin();
-      setAdmin(null);
+      console.error("Authentication check failed:", error);
+      clearAuth();
     } finally {
       setLoading(false);
     }
-  };
+  }, [clearAuth]);
 
   // ==========================================
   // INITIAL AUTH CHECK
@@ -63,60 +68,70 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     loadAdmin();
-  }, []);
+  }, [loadAdmin]);
 
   // ==========================================
   // LOGIN
   // ==========================================
 
-  const login = async (token, adminData = null) => {
-    localStorage.setItem("token", token);
+  const login = useCallback(
+    async (token, adminData = null) => {
+      if (!token) {
+        throw new Error("Authentication token is required.");
+      }
 
-    // If admin data is provided directly
-    if (adminData) {
-      setAdmin(adminData);
+      localStorage.setItem("token", token);
+      setLoading(true);
 
-      localStorage.setItem(
-        "admin",
-        JSON.stringify(adminData)
-      );
+      if (adminData) {
+        setAdmin(adminData);
 
-      return;
-    }
+        localStorage.setItem(
+          "admin",
+          JSON.stringify(adminData)
+        );
 
-    // Otherwise get admin from backend
-    try {
-      const data = await getCurrentAdmin();
+        setLoading(false);
+        return adminData;
+      }
 
-      if (data?.admin) {
+      try {
+        const data = await getCurrentAdmin();
+
+        if (!data?.admin) {
+          throw new Error("Unable to load administrator profile.");
+        }
+
         setAdmin(data.admin);
 
         localStorage.setItem(
           "admin",
           JSON.stringify(data.admin)
         );
+
+        return data.admin;
+      } catch (error) {
+        console.error(
+          "Failed to load admin after login:",
+          error
+        );
+
+        clearAuth();
+        throw error;
+      } finally {
+        setLoading(false);
       }
-    } catch (error) {
-      console.error(
-        "Failed to load admin after login:",
-        error
-      );
-
-      logoutAdmin();
-      setAdmin(null);
-
-      throw error;
-    }
-  };
+    },
+    [clearAuth]
+  );
 
   // ==========================================
   // LOGOUT
   // ==========================================
 
-  const logout = () => {
-    logoutAdmin();
-    setAdmin(null);
-  };
+  const logout = useCallback(() => {
+    clearAuth();
+  }, [clearAuth]);
 
   // ==========================================
   // AUTH CONTEXT
@@ -127,7 +142,7 @@ export function AuthProvider({ children }) {
       value={{
         admin,
         loading,
-        isAuthenticated: !!admin,
+        isAuthenticated: Boolean(admin),
         login,
         logout,
         loadAdmin,

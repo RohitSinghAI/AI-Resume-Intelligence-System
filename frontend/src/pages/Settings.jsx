@@ -19,10 +19,12 @@ import {
 
 import { useAuth } from "../context/AuthContext";
 
-const STORAGE_KEY = "resume-intelligence-settings";
+const STORAGE_KEY_PREFIX = "resume-intelligence-settings";
 
 function Settings() {
   const { admin } = useAuth();
+
+  const storageKey = `${STORAGE_KEY_PREFIX}-${admin?.id || admin?.email || "default"}`;
 
   const [activeTab, setActiveTab] = useState("profile");
   const [saved, setSaved] = useState(false);
@@ -73,7 +75,7 @@ function Settings() {
 
   useEffect(() => {
     try {
-      const savedSettings = localStorage.getItem(STORAGE_KEY);
+      const savedSettings = localStorage.getItem(storageKey);
 
       if (!savedSettings) return;
 
@@ -94,23 +96,13 @@ function Settings() {
     } catch (error) {
       console.error("Failed to load saved settings:", error);
     }
-  }, []);
+  }, [storageKey]);
 
-  const handleProfileChange = (e) => {
-    const { name, value } = e.target;
-
-    setProfile((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
-
-    setSaved(false);
-  };
 
   const savePreferences = () => {
     try {
       localStorage.setItem(
-        STORAGE_KEY,
+        storageKey,
         JSON.stringify({
           notifications,
           theme,
@@ -153,7 +145,7 @@ function Settings() {
     setAiModel(defaults.aiModel);
     setThreshold(defaults.threshold);
 
-    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(storageKey);
 
     setSaved(true);
     window.setTimeout(() => setSaved(false), 2500);
@@ -328,9 +320,9 @@ function Settings() {
                       type="text"
                       name="name"
                       value={profile.name}
-                      onChange={handleProfileChange}
+                      readOnly
                       autoComplete="name"
-                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                      className="w-full cursor-not-allowed rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 outline-none"
                     />
                   </div>
 
@@ -343,9 +335,9 @@ function Settings() {
                       type="email"
                       name="email"
                       value={profile.email}
-                      onChange={handleProfileChange}
+                      readOnly
                       autoComplete="email"
-                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                      className="w-full cursor-not-allowed rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 outline-none"
                     />
                   </div>
 
@@ -377,15 +369,14 @@ function Settings() {
                   </div>
                 </div>
 
-                <div className="flex justify-end border-t border-slate-100 pt-5">
-                  <button
-                    type="button"
-                    onClick={handleSave}
-                    className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700"
-                  >
-                    <Save size={17} />
-                    Save Changes
-                  </button>
+                <div className="flex items-center justify-between gap-4 border-t border-slate-100 pt-5">
+                  <p className="text-xs text-slate-400">
+                    Name and email come from the authenticated administrator account.
+                  </p>
+                  <span className="inline-flex items-center gap-2 rounded-xl bg-slate-100 px-3.5 py-2 text-xs font-semibold text-slate-600">
+                    <ShieldCheck size={15} />
+                    Account Managed
+                  </span>
                 </div>
               </div>
             </div>
