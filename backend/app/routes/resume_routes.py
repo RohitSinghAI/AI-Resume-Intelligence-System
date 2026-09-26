@@ -1,6 +1,7 @@
 import os
 import shutil
 import json
+from uuid import uuid4
 
 from fastapi import (
     APIRouter,
@@ -34,6 +35,9 @@ router = APIRouter(
 
 UPLOAD_DIR = "app/uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB per resume
+MAX_BULK_FILES = 20
 
 
 # ==================================================
@@ -273,6 +277,244 @@ async def upload_resume(
         "parsed_data": ai_data,
 
         "ai_analysis": ai_analysis
+    }
+
+
+# ==================================================
+# UPLOAD MULTIPLE RESUMES
+# IMPORTANT:
+# Processes files sequentially to avoid firing many
+# AI requests at once.
+# ==================================================
+
+@router.post("/upload-multiple")
+async def upload_multiple_resumes(
+    files: list[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+    current_admin: dict = Depends(get_current_admin)
+):
+    if not files:
+        raise HTTPException(
+            status_code=400,
+            detail="At least one PDF resume is required"
+        )
+
+    if len(files) > MAX_BULK_FILES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Maximum {MAX_BULK_FILES} resumes can be uploaded at once"
+        )
+
+    admin_id = int(current_admin["sub"])
+
+    successful = []
+    failed = []
+
+    # Process one resume at a time. This keeps AI requests controlled.
+    for file in files:
+        original_name = file.filename or "resume.pdf"
+        saved_path = None
+
+        try:
+            # ------------------------------------------
+            # 1. CHECK PDF
+            # ------------------------------------------
+
+            if not original_name.lower().endswith(".pdf"):
+                raise ValueError("Only PDF files are allowed")
+
+            # ------------------------------------------
+            # 2. READ + CHECK SIZE
+            # ------------------------------------------
+
+            content = await file.read()
+
+            if not content:
+                raise ValueError("The uploaded file is empty")
+
+            if len(content) > MAX_FILE_SIZE:
+                raise ValueError("File size must be less than 10 MB")
+
+            # ------------------------------------------
+            # 3. SAVE WITH UNIQUE NAME
+            # ------------------------------------------
+
+            safe_name = os.path.basename(original_name)
+            unique_name = f"{uuid4().hex}_{safe_name}"
+
+            saved_path = os.path.join(
+                UPLOAD_DIR,
+                unique_name
+            )
+
+            with open(saved_path, "wb") as buffer:
+                buffer.write(content)
+
+            # ------------------------------------------
+            # 4. EXTRACT TEXT
+            # ------------------------------------------
+
+            resume_text = extract_text_from_pdf(
+                saved_path
+            )
+
+            if not resume_text:
+                raise ValueError(
+                    "Could not extract text from PDF"
+                )
+
+            # ------------------------------------------
+            # 5. BASIC PARSER
+            # ------------------------------------------
+
+            basic_data = parse_resume(
+                resume_text
+            )
+
+            # ------------------------------------------
+            # 6. AI RESUME PARSER
+            # ------------------------------------------
+
+            ai_data = analyze_resume_with_ai(
+                resume_text
+            )
+
+            # ------------------------------------------
+            # 7. AI RESUME INTELLIGENCE
+            # ------------------------------------------
+
+            ai_analysis = analyze_resume_intelligence(
+                resume_text
+            )
+
+            # ------------------------------------------
+            # 8. CREATE DATABASE RECORD
+            # ------------------------------------------
+
+            resume = Resume(
+                admin_id=admin_id,
+
+                name=(
+                    ai_data.get("name")
+                    or basic_data.get("name")
+                ),
+
+                email=(
+                    ai_data.get("email")
+                    or basic_data.get("email")
+                ),
+
+                phone=(
+                    ai_data.get("phone")
+                    or basic_data.get("phone")
+                ),
+
+                education=json.dumps(
+                    ai_data.get("education")
+                    or basic_data.get("education")
+                    or []
+                ),
+
+                skills=json.dumps(
+                    ai_data.get("skills")
+                    or basic_data.get("skills")
+                    or []
+                ),
+
+                experience=json.dumps(
+                    ai_data.get("experience")
+                    or basic_data.get("experience")
+                    or []
+                ),
+
+                projects=json.dumps(
+                    ai_data.get("projects")
+                    or basic_data.get("projects")
+                    or []
+                ),
+
+                certifications=json.dumps(
+                    ai_data.get("certifications")
+                    or []
+                ),
+
+                resume_score=ai_analysis.get(
+                    "resume_score"
+                ),
+
+                ai_summary=ai_analysis.get(
+                    "summary"
+                ),
+
+                ai_strengths=json.dumps(
+                    ai_analysis.get(
+                        "strengths",
+                        []
+                    )
+                ),
+
+                ai_weaknesses=json.dumps(
+                    ai_analysis.get(
+                        "weaknesses",
+                        []
+                    )
+                ),
+
+                ai_missing_skills=json.dumps(
+                    ai_analysis.get(
+                        "missing_skills",
+                        []
+                    )
+                ),
+
+                ai_suggestions=json.dumps(
+                    ai_analysis.get(
+                        "suggestions",
+                        []
+                    )
+                ),
+
+                resume_text=resume_text,
+
+                file_name=original_name,
+
+                file_path=saved_path
+            )
+
+            db.add(resume)
+            db.commit()
+            db.refresh(resume)
+
+            successful.append({
+                "file_name": original_name,
+                "status": "success",
+                "resume_id": resume.id,
+                "candidate_name": resume.name
+            })
+
+        except Exception as e:
+            db.rollback()
+
+            # Remove only the file created for this failed upload.
+            if saved_path and os.path.exists(saved_path):
+                try:
+                    os.remove(saved_path)
+                except OSError:
+                    pass
+
+            failed.append({
+                "file_name": original_name,
+                "status": "failed",
+                "error": str(e)
+            })
+
+    return {
+        "message": "Bulk resume processing completed",
+        "total_files": len(files),
+        "successful_uploads": len(successful),
+        "failed_uploads": len(failed),
+        "successful": successful,
+        "failed": failed
     }
 
 

@@ -1,12 +1,17 @@
 import API from "./api";
 
-// =========================
-// MATCH RESUME WITH JOB
-// =========================
+// =====================================================
+// MATCH ONE RESUME WITH ONE JOB
+// =====================================================
 
-export const matchResumeWithJob = async (jobId, resumeId) => {
+export const matchResumeWithJob = async (
+  jobId,
+  resumeId
+) => {
   if (!jobId || !resumeId) {
-    throw new Error("Job ID and Resume ID are required.");
+    throw new Error(
+      "Job ID and Resume ID are required."
+    );
   }
 
   const response = await API.get(
@@ -16,13 +21,38 @@ export const matchResumeWithJob = async (jobId, resumeId) => {
   return response.data;
 };
 
-// =========================
-// SAVE JOB MATCH
-// =========================
 
-export const saveJobMatch = async (jobId, resumeId) => {
+// =====================================================
+// MATCH ALL RESUMES WITH ONE JOB
+// =====================================================
+
+export const matchAllResumesWithJob = async (
+  jobId
+) => {
+  if (!jobId) {
+    throw new Error("Job ID is required.");
+  }
+
+  const response = await API.post(
+    `/jobs/match-all/${jobId}`
+  );
+
+  return response.data;
+};
+
+
+// =====================================================
+// SAVE JOB MATCH
+// =====================================================
+
+export const saveJobMatch = async (
+  jobId,
+  resumeId
+) => {
   if (!jobId || !resumeId) {
-    throw new Error("Job ID and Resume ID are required.");
+    throw new Error(
+      "Job ID and Resume ID are required."
+    );
   }
 
   const response = await API.post(
@@ -32,13 +62,18 @@ export const saveJobMatch = async (jobId, resumeId) => {
   return response.data;
 };
 
-// =========================
-// GET MATCH HISTORY
-// =========================
 
-export const getMatchHistory = async (resumeId) => {
+// =====================================================
+// GET MATCH HISTORY
+// =====================================================
+
+export const getMatchHistory = async (
+  resumeId
+) => {
   if (!resumeId) {
-    throw new Error("Resume ID is required.");
+    throw new Error(
+      "Resume ID is required."
+    );
   }
 
   const response = await API.get(

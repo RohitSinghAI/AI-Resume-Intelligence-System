@@ -33,6 +33,42 @@ router = APIRouter(
 
 
 # ==========================================
+# HELPERS
+# ==========================================
+
+def parse_list_field(value):
+    """Parse a JSON list stored in a Text column.
+
+    Falls back to comma/newline/pipe separated values so older
+    records remain compatible.
+    """
+    if value is None:
+        return []
+
+    if isinstance(value, list):
+        return value
+
+    value = str(value).strip()
+    if not value:
+        return []
+
+    try:
+        parsed = json.loads(value)
+        if isinstance(parsed, list):
+            return parsed
+        if isinstance(parsed, str):
+            value = parsed
+    except json.JSONDecodeError:
+        pass
+
+    return [
+        item.strip()
+        for item in value.replace("|", ",").replace("\n", ",").split(",")
+        if item.strip()
+    ]
+
+
+# ==========================================
 # CREATE JOB
 # ==========================================
 
@@ -548,6 +584,164 @@ def match_resume_with_job(
         ),
 
         "ai_analysis": ai_analysis
+    }
+
+
+# ==========================================
+# BULK RESUME ↔ JOB MATCHING
+# IMPORTANT:
+# Keep BEFORE /{job_id} routes when possible.
+#
+# This endpoint calculates matches for all resumes
+# owned by the current admin. It does NOT save every
+# result to JobMatch history automatically.
+# The individual save endpoint remains responsible
+# for persisting a selected match.
+# ==========================================
+
+@router.post("/match-all/{job_id}")
+def match_all_resumes_with_job(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_admin: dict = Depends(get_current_admin)
+):
+
+    admin_id = int(current_admin["sub"])
+
+    # --------------------------------------
+    # Find Job + Check Ownership
+    # --------------------------------------
+
+    job = db.query(Job).filter(
+        Job.id == job_id,
+        Job.admin_id == admin_id
+    ).first()
+
+    if not job:
+        raise HTTPException(
+            status_code=404,
+            detail="Job not found"
+        )
+
+    # --------------------------------------
+    # Parse Required Skills
+    # --------------------------------------
+
+    required_skills = parse_list_field(
+        job.required_skills
+    )
+
+    # --------------------------------------
+    # Get All Resumes For Current Admin
+    # --------------------------------------
+
+    resumes = db.query(Resume).filter(
+        Resume.admin_id == admin_id
+    ).all()
+
+    results = []
+
+    # --------------------------------------
+    # Match Every Resume
+    # --------------------------------------
+
+    for resume in resumes:
+        try:
+            resume_skills = parse_list_field(
+                resume.skills
+            )
+
+            result = calculate_final_match(
+                resume_skills=resume_skills,
+                required_skills=required_skills,
+                resume_experience=(
+                    resume.experience or ""
+                ),
+                required_experience=(
+                    job.experience_required or ""
+                )
+            )
+
+            results.append({
+                "resume_id": resume.id,
+                "candidate_name": (
+                    resume.name or "Unknown Candidate"
+                ),
+                "email": resume.email,
+                "phone": resume.phone,
+                "final_match_score": round(
+                    float(result.get("final_match_score", 0)),
+                    2
+                ),
+                "exact_skill_score": round(
+                    float(result.get("exact_skill_score", 0)),
+                    2
+                ),
+                "semantic_skill_score": round(
+                    float(result.get("semantic_skill_score", 0)),
+                    2
+                ),
+                "experience_score": round(
+                    float(result.get("experience_score", 0)),
+                    2
+                ),
+                "matched_skills": result.get(
+                    "matched_skills", []
+                ),
+                "missing_skills": result.get(
+                    "missing_skills", []
+                ),
+            })
+
+        except Exception as error:
+            # Do not fail the complete bulk request because
+            # one resume has malformed/unsupported data.
+            results.append({
+                "resume_id": resume.id,
+                "candidate_name": (
+                    resume.name or "Unknown Candidate"
+                ),
+                "email": resume.email,
+                "phone": resume.phone,
+                "final_match_score": 0,
+                "exact_skill_score": 0,
+                "semantic_skill_score": 0,
+                "experience_score": 0,
+                "matched_skills": [],
+                "missing_skills": required_skills,
+                "error": "Unable to calculate match for this resume"
+            })
+
+            print(
+                f"Bulk match failed for resume {resume.id}: {error}"
+            )
+
+    # --------------------------------------
+    # Rank By Final Match Score
+    # --------------------------------------
+
+    results.sort(
+        key=lambda item: item.get(
+            "final_match_score", 0
+        ),
+        reverse=True
+    )
+
+    # --------------------------------------
+    # Add Ranking
+    # --------------------------------------
+
+    for index, item in enumerate(results, start=1):
+        item["rank"] = index
+
+    return {
+        "job_id": job.id,
+        "job_title": job.title,
+        "company": job.company,
+        "total_resumes": len(resumes),
+        "matched_resumes": len(results),
+        "required_skills": required_skills,
+        "results": results
     }
 
 
