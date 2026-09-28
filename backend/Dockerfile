@@ -20,5 +20,7 @@ COPY . .
 # Ensure upload directory exists
 RUN mkdir -p app/uploads
 
+EXPOSE 10000
+
 # Render provides PORT; use 10000 as fallback
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-10000}"]
