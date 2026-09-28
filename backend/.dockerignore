@@ -1,0 +1,12 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.git/
+.gitignore
+.env
+.env.*
+resume_intelligence.db
+resume_intelligence_backup.db
+app/uploads/
