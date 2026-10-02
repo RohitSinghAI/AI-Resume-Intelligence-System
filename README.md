@@ -6,6 +6,14 @@ The system allows recruiters to upload single or multiple resumes, extract struc
 
 ---
 
+## Deployment
+
+- **Frontend:** Live on Vercel
+- **Frontend URL:** https://ai-resume-intelligence-system-eight.vercel.app/
+- **Backend:** Running locally in Docker
+- **Backend URL:** http://localhost:8000
+- **Render:** Backend is not deployed on the Render Free plan due to memory limitations.
+
 ## 🚀 Project Overview
 
 The AI Resume Intelligence System combines:
