@@ -9,3 +9,8 @@ Virtual environment activate:
 
 Install requirements:
 pip install -r requirements.txt
+
+docker command:
+docker run -d --env-file .env -p 8000:10000 --name resume-backend-container --restart unless-stopped ai-resume-backend:latest
+
+docker start resume-backend-container
