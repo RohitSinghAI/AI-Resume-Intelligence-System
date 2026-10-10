@@ -2,7 +2,6 @@ import sqlite3
 
 DATABASE = "resume_intelligence.db"
 
-
 def migrate():
     connection = sqlite3.connect(DATABASE)
     cursor = connection.cursor()
